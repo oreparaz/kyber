@@ -1,0 +1,475 @@
+From 107585feaf36bac12c96a82b1df4c37d6559b4c9 Mon Sep 17 00:00:00 2001
+Date: Sun, 31 Mar 2024 13:56:16 -0400
+Subject: [PATCH] derandomize ref
+
+We supply our own random function instead of linking against
+randombytes(). This is an API-breaking change.
+---
+ ref/api.h        | 25 +++++++++++++------------
+ ref/indcpa.c     |  5 +++--
+ ref/indcpa.h     |  4 +++-
+ ref/kem.c        | 14 +++++++++-----
+ ref/kem.h        |  5 +++--
+ ref/kex.c        | 22 +++++++++++-----------
+ ref/kex.h        |  8 ++++----
+ ref/params.h     |  2 +-
+ ref/test_kex.c   | 15 +++++++++------
+ ref/test_kyber.c | 14 ++++++++------
+ ref/test_speed.c | 17 ++++++++++-------
+ 11 files changed, 74 insertions(+), 57 deletions(-)
+
+diff --git a/ref/api.h b/ref/api.h
+index b34eab9..be15aa6 100644
+--- a/ref/api.h
++++ b/ref/api.h
+@@ -2,6 +2,7 @@
+ #define API_H
+ 
+ #include <stdint.h>
++#include <stddef.h>
+ 
+ #define pqcrystals_kyber512_SECRETKEYBYTES 1632
+ #define pqcrystals_kyber512_PUBLICKEYBYTES 800
+@@ -13,8 +14,8 @@
+ #define pqcrystals_kyber512_ref_CIPHERTEXTBYTES pqcrystals_kyber512_CIPHERTEXTBYTES
+ #define pqcrystals_kyber512_ref_BYTES pqcrystals_kyber512_BYTES
+ 
+-int pqcrystals_kyber512_ref_keypair(uint8_t *pk, uint8_t *sk);
+-int pqcrystals_kyber512_ref_enc(uint8_t *ct, uint8_t *ss, const uint8_t *pk);
++int pqcrystals_kyber512_ref_keypair(uint8_t *pk, uint8_t *sk, void (*rnd)(uint8_t *, size_t));
++int pqcrystals_kyber512_ref_enc(uint8_t *ct, uint8_t *ss, const uint8_t *pk, void (*rnd)(uint8_t *, size_t));
+ int pqcrystals_kyber512_ref_dec(uint8_t *ss, const uint8_t *ct, const uint8_t *sk);
+ 
+ #define pqcrystals_kyber512_90s_ref_SECRETKEYBYTES pqcrystals_kyber512_SECRETKEYBYTES
+@@ -22,8 +23,8 @@ int pqcrystals_kyber512_ref_dec(uint8_t *ss, const uint8_t *ct, const uint8_t *s
+ #define pqcrystals_kyber512_90s_ref_CIPHERTEXTBYTES pqcrystals_kyber512_CIPHERTEXTBYTES
+ #define pqcrystals_kyber512_90s_ref_BYTES pqcrystals_kyber512_BYTES
+ 
+-int pqcrystals_kyber512_90s_ref_keypair(uint8_t *pk, uint8_t *sk);
+-int pqcrystals_kyber512_90s_ref_enc(uint8_t *ct, uint8_t *ss, const uint8_t *pk);
++int pqcrystals_kyber512_90s_ref_keypair(uint8_t *pk, uint8_t *sk, void (*rnd)(uint8_t *, size_t));
++int pqcrystals_kyber512_90s_ref_enc(uint8_t *ct, uint8_t *ss, const uint8_t *pk, void (*rnd)(uint8_t *, size_t));
+ int pqcrystals_kyber512_90s_ref_dec(uint8_t *ss, const uint8_t *ct, const uint8_t *sk);
+ 
+ #define pqcrystals_kyber768_SECRETKEYBYTES 2400
+@@ -36,8 +37,8 @@ int pqcrystals_kyber512_90s_ref_dec(uint8_t *ss, const uint8_t *ct, const uint8_
+ #define pqcrystals_kyber768_ref_CIPHERTEXTBYTES pqcrystals_kyber768_CIPHERTEXTBYTES
+ #define pqcrystals_kyber768_ref_BYTES pqcrystals_kyber768_BYTES
+ 
+-int pqcrystals_kyber768_ref_keypair(uint8_t *pk, uint8_t *sk);
+-int pqcrystals_kyber768_ref_enc(uint8_t *ct, uint8_t *ss, const uint8_t *pk);
++int pqcrystals_kyber768_ref_keypair(uint8_t *pk, uint8_t *sk, void (*rnd)(uint8_t *, size_t));
++int pqcrystals_kyber768_ref_enc(uint8_t *ct, uint8_t *ss, const uint8_t *pk, void (*rnd)(uint8_t *, size_t));
+ int pqcrystals_kyber768_ref_dec(uint8_t *ss, const uint8_t *ct, const uint8_t *sk);
+ 
+ #define pqcrystals_kyber768_90s_ref_SECRETKEYBYTES pqcrystals_kyber768_SECRETKEYBYTES
+@@ -45,8 +46,8 @@ int pqcrystals_kyber768_ref_dec(uint8_t *ss, const uint8_t *ct, const uint8_t *s
+ #define pqcrystals_kyber768_90s_ref_CIPHERTEXTBYTES pqcrystals_kyber768_CIPHERTEXTBYTES
+ #define pqcrystals_kyber768_90s_ref_BYTES pqcrystals_kyber768_BYTES
+ 
+-int pqcrystals_kyber768_90s_ref_keypair(uint8_t *pk, uint8_t *sk);
+-int pqcrystals_kyber768_90s_ref_enc(uint8_t *ct, uint8_t *ss, const uint8_t *pk);
++int pqcrystals_kyber768_90s_ref_keypair(uint8_t *pk, uint8_t *sk, void (*rnd)(uint8_t *, size_t));
++int pqcrystals_kyber768_90s_ref_enc(uint8_t *ct, uint8_t *ss, const uint8_t *pk, void (*rnd)(uint8_t *, size_t));
+ int pqcrystals_kyber768_90s_ref_dec(uint8_t *ss, const uint8_t *ct, const uint8_t *sk);
+ 
+ #define pqcrystals_kyber1024_SECRETKEYBYTES 3168
+@@ -59,8 +60,8 @@ int pqcrystals_kyber768_90s_ref_dec(uint8_t *ss, const uint8_t *ct, const uint8_
+ #define pqcrystals_kyber1024_ref_CIPHERTEXTBYTES pqcrystals_kyber1024_CIPHERTEXTBYTES
+ #define pqcrystals_kyber1024_ref_BYTES pqcrystals_kyber1024_BYTES
+ 
+-int pqcrystals_kyber1024_ref_keypair(uint8_t *pk, uint8_t *sk);
+-int pqcrystals_kyber1024_ref_enc(uint8_t *ct, uint8_t *ss, const uint8_t *pk);
++int pqcrystals_kyber1024_ref_keypair(uint8_t *pk, uint8_t *sk, void (*rnd)(uint8_t *, size_t));
++int pqcrystals_kyber1024_ref_enc(uint8_t *ct, uint8_t *ss, const uint8_t *pk, void (*rnd)(uint8_t *, size_t));
+ int pqcrystals_kyber1024_ref_dec(uint8_t *ss, const uint8_t *ct, const uint8_t *sk);
+ 
+ #define pqcrystals_kyber1024_90s_ref_SECRETKEYBYTES pqcrystals_kyber1024_SECRETKEYBYTES
+@@ -68,8 +69,8 @@ int pqcrystals_kyber1024_ref_dec(uint8_t *ss, const uint8_t *ct, const uint8_t *
+ #define pqcrystals_kyber1024_90s_ref_CIPHERTEXTBYTES pqcrystals_kyber1024_CIPHERTEXTBYTES
+ #define pqcrystals_kyber1024_90s_ref_BYTES pqcrystals_kyber1024_BYTES
+ 
+-int pqcrystals_kyber1024_90s_ref_keypair(uint8_t *pk, uint8_t *sk);
+-int pqcrystals_kyber1024_90s_ref_enc(uint8_t *ct, uint8_t *ss, const uint8_t *pk);
++int pqcrystals_kyber1024_90s_ref_keypair(uint8_t *pk, uint8_t *sk, void (*rnd)(uint8_t *, size_t));
++int pqcrystals_kyber1024_90s_ref_enc(uint8_t *ct, uint8_t *ss, const uint8_t *pk, void (*rnd)(uint8_t *, size_t));
+ int pqcrystals_kyber1024_90s_ref_dec(uint8_t *ss, const uint8_t *ct, const uint8_t *sk);
+ 
+ #endif
+diff --git a/ref/indcpa.c b/ref/indcpa.c
+index 60f4059..9841a07 100644
+--- a/ref/indcpa.c
++++ b/ref/indcpa.c
+@@ -203,7 +203,8 @@ void gen_matrix(polyvec *a, const uint8_t seed[KYBER_SYMBYTES], int transposed)
+                               (of length KYBER_INDCPA_SECRETKEYBYTES bytes)
+ **************************************************/
+ void indcpa_keypair(uint8_t pk[KYBER_INDCPA_PUBLICKEYBYTES],
+-                    uint8_t sk[KYBER_INDCPA_SECRETKEYBYTES])
++                    uint8_t sk[KYBER_INDCPA_SECRETKEYBYTES],
++                    void (*rnd)(uint8_t *, size_t))
+ {
+   unsigned int i;
+   uint8_t buf[2*KYBER_SYMBYTES];
+@@ -212,7 +213,7 @@ void indcpa_keypair(uint8_t pk[KYBER_INDCPA_PUBLICKEYBYTES],
+   uint8_t nonce = 0;
+   polyvec a[KYBER_K], e, pkpv, skpv;
+ 
+-  randombytes(buf, KYBER_SYMBYTES);
++  rnd(buf, KYBER_SYMBYTES);
+   hash_g(buf, buf, KYBER_SYMBYTES);
+ 
+   gen_a(a, publicseed);
+diff --git a/ref/indcpa.h b/ref/indcpa.h
+index 57bd5ea..d68bf1b 100644
+--- a/ref/indcpa.h
++++ b/ref/indcpa.h
+@@ -2,6 +2,7 @@
+ #define INDCPA_H
+ 
+ #include <stdint.h>
++#include <stddef.h>
+ #include "params.h"
+ #include "polyvec.h"
+ 
+@@ -9,7 +10,8 @@
+ void gen_matrix(polyvec *a, const uint8_t seed[KYBER_SYMBYTES], int transposed);
+ #define indcpa_keypair KYBER_NAMESPACE(indcpa_keypair)
+ void indcpa_keypair(uint8_t pk[KYBER_INDCPA_PUBLICKEYBYTES],
+-                    uint8_t sk[KYBER_INDCPA_SECRETKEYBYTES]);
++                    uint8_t sk[KYBER_INDCPA_SECRETKEYBYTES],
++                    void (*rnd)(uint8_t *, size_t));
+ 
+ #define indcpa_enc KYBER_NAMESPACE(indcpa_enc)
+ void indcpa_enc(uint8_t c[KYBER_INDCPA_BYTES],
+diff --git a/ref/kem.c b/ref/kem.c
+index f376bd2..6a21fb5 100644
+--- a/ref/kem.c
++++ b/ref/kem.c
+@@ -21,15 +21,16 @@
+ * Returns 0 (success)
+ **************************************************/
+ int crypto_kem_keypair(uint8_t *pk,
+-                       uint8_t *sk)
++                       uint8_t *sk,
++                       void (*rnd)(uint8_t *, size_t))
+ {
+   size_t i;
+-  indcpa_keypair(pk, sk);
++  indcpa_keypair(pk, sk, rnd);
+   for(i=0;i<KYBER_INDCPA_PUBLICKEYBYTES;i++)
+     sk[i+KYBER_INDCPA_SECRETKEYBYTES] = pk[i];
+   hash_h(sk+KYBER_SECRETKEYBYTES-2*KYBER_SYMBYTES, pk, KYBER_PUBLICKEYBYTES);
+   /* Value z for pseudo-random output on reject */
+-  randombytes(sk+KYBER_SECRETKEYBYTES-KYBER_SYMBYTES, KYBER_SYMBYTES);
++  rnd(sk+KYBER_SECRETKEYBYTES-KYBER_SYMBYTES, KYBER_SYMBYTES);
+   return 0;
+ }
+ 
+@@ -45,18 +46,21 @@ int crypto_kem_keypair(uint8_t *pk,
+ *                (an already allocated array of KYBER_SSBYTES bytes)
+ *              - const uint8_t *pk: pointer to input public key
+ *                (an already allocated array of KYBER_PUBLICKEYBYTES bytes)
++*              - void (*rnd)(uint8_t *, size_t): pointer to a randombytes function
++*                (a function with the following signature: void randombytes(uint8_t *out, size_t outlen))
+ *
+ * Returns 0 (success)
+ **************************************************/
+ int crypto_kem_enc(uint8_t *ct,
+                    uint8_t *ss,
+-                   const uint8_t *pk)
++                   const uint8_t *pk,
++                   void (*rnd)(uint8_t *, size_t))
+ {
+   uint8_t buf[2*KYBER_SYMBYTES];
+   /* Will contain key, coins */
+   uint8_t kr[2*KYBER_SYMBYTES];
+ 
+-  randombytes(buf, KYBER_SYMBYTES);
++  rnd(buf, KYBER_SYMBYTES);
+   /* Don't release system RNG output */
+   hash_h(buf, buf, KYBER_SYMBYTES);
+ 
+diff --git a/ref/kem.h b/ref/kem.h
+index 3f3eff6..03decb3 100644
+--- a/ref/kem.h
++++ b/ref/kem.h
+@@ -2,6 +2,7 @@
+ #define KEM_H
+ 
+ #include <stdint.h>
++#include <stddef.h>
+ #include "params.h"
+ 
+ #define CRYPTO_SECRETKEYBYTES  KYBER_SECRETKEYBYTES
+@@ -30,10 +31,10 @@
+ #endif
+ 
+ #define crypto_kem_keypair KYBER_NAMESPACE(keypair)
+-int crypto_kem_keypair(uint8_t *pk, uint8_t *sk);
++int crypto_kem_keypair(uint8_t *pk, uint8_t *sk, void (*rnd)(uint8_t *, size_t));
+ 
+ #define crypto_kem_enc KYBER_NAMESPACE(enc)
+-int crypto_kem_enc(uint8_t *ct, uint8_t *ss, const uint8_t *pk);
++int crypto_kem_enc(uint8_t *ct, uint8_t *ss, const uint8_t *pk, void (*rnd)(uint8_t *, size_t));
+ 
+ #define crypto_kem_dec KYBER_NAMESPACE(dec)
+ int crypto_kem_dec(uint8_t *ss, const uint8_t *ct, const uint8_t *sk);
+diff --git a/ref/kex.c b/ref/kex.c
+index 2ad6c87..04b1f13 100644
+--- a/ref/kex.c
++++ b/ref/kex.c
+@@ -3,16 +3,16 @@
+ #include "kem.h"
+ #include "symmetric.h"
+ 
+-void kex_uake_initA(uint8_t *send, uint8_t *tk, uint8_t *sk, const uint8_t *pkb)
++void kex_uake_initA(uint8_t *send, uint8_t *tk, uint8_t *sk, const uint8_t *pkb, void (*rnd)(uint8_t *, size_t))
+ {
+-  crypto_kem_keypair(send, sk);
+-  crypto_kem_enc(send+CRYPTO_PUBLICKEYBYTES, tk, pkb);
++  crypto_kem_keypair(send, sk, rnd);
++  crypto_kem_enc(send+CRYPTO_PUBLICKEYBYTES, tk, pkb, rnd);
+ }
+ 
+-void kex_uake_sharedB(uint8_t *send, uint8_t *k, const uint8_t *recv, const uint8_t *skb)
++void kex_uake_sharedB(uint8_t *send, uint8_t *k, const uint8_t *recv, const uint8_t *skb, void (*rnd)(uint8_t *, size_t))
+ {
+   uint8_t buf[2*CRYPTO_BYTES];
+-  crypto_kem_enc(send, buf, recv);
++  crypto_kem_enc(send, buf, recv, rnd);
+   crypto_kem_dec(buf+CRYPTO_BYTES, recv+CRYPTO_PUBLICKEYBYTES, skb);
+   kdf(k, buf, 2*CRYPTO_BYTES);
+ }
+@@ -27,17 +27,17 @@ void kex_uake_sharedA(uint8_t *k, const uint8_t *recv, const uint8_t *tk, const
+   kdf(k, buf, 2*CRYPTO_BYTES);
+ }
+ 
+-void kex_ake_initA(uint8_t *send, uint8_t *tk, uint8_t *sk, const uint8_t *pkb)
++void kex_ake_initA(uint8_t *send, uint8_t *tk, uint8_t *sk, const uint8_t *pkb, void (*rnd)(uint8_t *, size_t))
+ {
+-  crypto_kem_keypair(send, sk);
+-  crypto_kem_enc(send+CRYPTO_PUBLICKEYBYTES, tk, pkb);
++  crypto_kem_keypair(send, sk, rnd);
++  crypto_kem_enc(send+CRYPTO_PUBLICKEYBYTES, tk, pkb, rnd);
+ }
+ 
+-void kex_ake_sharedB(uint8_t *send, uint8_t *k, const uint8_t* recv, const uint8_t *skb, const uint8_t *pka)
++void kex_ake_sharedB(uint8_t *send, uint8_t *k, const uint8_t* recv, const uint8_t *skb, const uint8_t *pka, void (*rnd)(uint8_t *, size_t))
+ {
+   uint8_t buf[3*CRYPTO_BYTES];
+-  crypto_kem_enc(send, buf, recv);
+-  crypto_kem_enc(send+CRYPTO_CIPHERTEXTBYTES, buf+CRYPTO_BYTES, pka);
++  crypto_kem_enc(send, buf, recv, rnd);
++  crypto_kem_enc(send+CRYPTO_CIPHERTEXTBYTES, buf+CRYPTO_BYTES, pka, rnd);
+   crypto_kem_dec(buf+2*CRYPTO_BYTES, recv+CRYPTO_PUBLICKEYBYTES, skb);
+   kdf(k, buf, 3*CRYPTO_BYTES);
+ }
+diff --git a/ref/kex.h b/ref/kex.h
+index fd45c77..b8b9803 100644
+--- a/ref/kex.h
++++ b/ref/kex.h
+@@ -12,14 +12,14 @@
+ 
+ #define KEX_SSBYTES KYBER_SSBYTES
+ 
+-void kex_uake_initA(uint8_t *send, uint8_t *tk, uint8_t *sk, const uint8_t *pkb);
++void kex_uake_initA(uint8_t *send, uint8_t *tk, uint8_t *sk, const uint8_t *pkb, void (*rnd)(uint8_t *, size_t));
+ 
+-void kex_uake_sharedB(uint8_t *send, uint8_t *k, const uint8_t *recv, const uint8_t *skb);
++void kex_uake_sharedB(uint8_t *send, uint8_t *k, const uint8_t *recv, const uint8_t *skb, void (*rnd)(uint8_t *, size_t));
+ 
+ void kex_uake_sharedA(uint8_t *k, const uint8_t *recv, const uint8_t *tk, const uint8_t *sk);
+ 
+-void kex_ake_initA(uint8_t *send, uint8_t *tk, uint8_t *sk, const uint8_t *pkb);
+-void kex_ake_sharedB(uint8_t *send, uint8_t *k, const uint8_t *recv, const uint8_t *skb, const uint8_t *pka);
++void kex_ake_initA(uint8_t *send, uint8_t *tk, uint8_t *sk, const uint8_t *pkb, void (*rnd)(uint8_t *, size_t));
++void kex_ake_sharedB(uint8_t *send, uint8_t *k, const uint8_t *recv, const uint8_t *skb, const uint8_t *pka, void (*rnd)(uint8_t *, size_t));
+ 
+ void kex_ake_sharedA(uint8_t *k, const uint8_t *recv, const uint8_t *tk, const uint8_t *sk, const uint8_t *ska);
+ 
+diff --git a/ref/params.h b/ref/params.h
+index 3d02a0f..b68c524 100644
+--- a/ref/params.h
++++ b/ref/params.h
+@@ -2,7 +2,7 @@
+ #define PARAMS_H
+ 
+ #ifndef KYBER_K
+-#define KYBER_K 3	/* Change this for different security strengths */
++#error "need to define KYBER_K in {2,3,4}"
+ #endif
+ 
+ //#define KYBER_90S	/* Uncomment this if you want the 90S variant */
+diff --git a/ref/test_kex.c b/ref/test_kex.c
+index 01f6ce8..480ea63 100644
+--- a/ref/test_kex.c
++++ b/ref/test_kex.c
+@@ -5,6 +5,9 @@
+ #include "kem.h"
+ #include "kex.h"
+ 
++#include "randombytes.h"
++void (*rnd)(uint8_t *, size_t) = randombytes;
++
+ int main(void)
+ {
+   uint8_t pkb[CRYPTO_PUBLICKEYBYTES];
+@@ -30,16 +33,16 @@ int main(void)
+   for(i=0;i<KEX_SSBYTES;i++)
+     zero[i] = 0;
+ 
+-  crypto_kem_keypair(pkb, skb); // Generate static key for Bob
++  crypto_kem_keypair(pkb, skb, rnd); // Generate static key for Bob
+ 
+-  crypto_kem_keypair(pka, ska); // Generate static key for Alice
++  crypto_kem_keypair(pka, ska, rnd); // Generate static key for Alice
+ 
+ 
+   // Perform unilaterally authenticated key exchange
+ 
+-  kex_uake_initA(uake_senda, tk, eska, pkb); // Run by Alice
++  kex_uake_initA(uake_senda, tk, eska, pkb, rnd); // Run by Alice
+ 
+-  kex_uake_sharedB(uake_sendb, kb, uake_senda, skb); // Run by Bob
++  kex_uake_sharedB(uake_sendb, kb, uake_senda, skb, rnd); // Run by Bob
+ 
+   kex_uake_sharedA(ka, uake_sendb, tk, eska); // Run by Alice
+ 
+@@ -51,9 +54,9 @@ int main(void)
+ 
+   // Perform mutually authenticated key exchange
+ 
+-  kex_ake_initA(ake_senda, tk, eska, pkb); // Run by Alice
++  kex_ake_initA(ake_senda, tk, eska, pkb, rnd); // Run by Alice
+ 
+-  kex_ake_sharedB(ake_sendb, kb, ake_senda, skb, pka); // Run by Bob
++  kex_ake_sharedB(ake_sendb, kb, ake_senda, skb, pka, rnd); // Run by Bob
+ 
+   kex_ake_sharedA(ka, ake_sendb, tk, eska, ska); // Run by Alice
+ 
+diff --git a/ref/test_kyber.c b/ref/test_kyber.c
+index cac6b41..c1386e2 100644
+--- a/ref/test_kyber.c
++++ b/ref/test_kyber.c
+@@ -6,6 +6,8 @@
+ 
+ #define NTESTS 1000
+ 
++void (*rnd)(uint8_t *, size_t) = randombytes;
++
+ static int test_keys(void)
+ {
+   uint8_t pk[CRYPTO_PUBLICKEYBYTES];
+@@ -15,10 +17,10 @@ static int test_keys(void)
+   uint8_t key_b[CRYPTO_BYTES];
+ 
+   //Alice generates a public key
+-  crypto_kem_keypair(pk, sk);
++  crypto_kem_keypair(pk, sk, rnd);
+ 
+   //Bob derives a secret key and creates a response
+-  crypto_kem_enc(ct, key_b, pk);
++  crypto_kem_enc(ct, key_b, pk, rnd);
+ 
+   //Alice uses Bobs response to get her shared key
+   crypto_kem_dec(key_a, ct, sk);
+@@ -40,10 +42,10 @@ static int test_invalid_sk_a(void)
+   uint8_t key_b[CRYPTO_BYTES];
+ 
+   //Alice generates a public key
+-  crypto_kem_keypair(pk, sk);
++  crypto_kem_keypair(pk, sk, rnd);
+ 
+   //Bob derives a secret key and creates a response
+-  crypto_kem_enc(ct, key_b, pk);
++  crypto_kem_enc(ct, key_b, pk, rnd);
+ 
+   //Replace secret key with random values
+   randombytes(sk, CRYPTO_SECRETKEYBYTES);
+@@ -75,10 +77,10 @@ static int test_invalid_ciphertext(void)
+   randombytes((uint8_t *)&pos, sizeof(size_t));
+ 
+   //Alice generates a public key
+-  crypto_kem_keypair(pk, sk);
++  crypto_kem_keypair(pk, sk, rnd);
+ 
+   //Bob derives a secret key and creates a response
+-  crypto_kem_enc(ct, key_b, pk);
++  crypto_kem_enc(ct, key_b, pk, rnd);
+ 
+   //Change some byte in the ciphertext (i.e., encapsulated key)
+   ct[pos % CRYPTO_CIPHERTEXTBYTES] ^= b;
+diff --git a/ref/test_speed.c b/ref/test_speed.c
+index d10cb24..6a32102 100644
+--- a/ref/test_speed.c
++++ b/ref/test_speed.c
+@@ -13,6 +13,9 @@
+ 
+ #define NTESTS 1000
+ 
++#include "randombytes.h"
++void (*rnd)(uint8_t *, size_t) = randombytes;
++
+ uint64_t t[NTESTS];
+ uint8_t seed[KYBER_SYMBYTES] = {0};
+ 
+@@ -103,7 +106,7 @@ int main(void)
+ 
+   for(i=0;i<NTESTS;i++) {
+     t[i] = cpucycles();
+-    indcpa_keypair(pk, sk);
++    indcpa_keypair(pk, sk, rnd);
+   }
+   print_results("indcpa_keypair: ", t, NTESTS);
+ 
+@@ -121,13 +124,13 @@ int main(void)
+ 
+   for(i=0;i<NTESTS;i++) {
+     t[i] = cpucycles();
+-    crypto_kem_keypair(pk, sk);
++    crypto_kem_keypair(pk, sk, rnd);
+   }
+   print_results("kyber_keypair: ", t, NTESTS);
+ 
+   for(i=0;i<NTESTS;i++) {
+     t[i] = cpucycles();
+-    crypto_kem_enc(ct, key, pk);
++    crypto_kem_enc(ct, key, pk, rnd);
+   }
+   print_results("kyber_encaps: ", t, NTESTS);
+ 
+@@ -139,13 +142,13 @@ int main(void)
+ 
+   for(i=0;i<NTESTS;i++) {
+     t[i] = cpucycles();
+-    kex_uake_initA(kexsenda, key, sk, pk);
++    kex_uake_initA(kexsenda, key, sk, pk, rnd);
+   }
+   print_results("kex_uake_initA: ", t, NTESTS);
+ 
+   for(i=0;i<NTESTS;i++) {
+     t[i] = cpucycles();
+-    kex_uake_sharedB(kexsendb, kexkey, kexsenda, sk);
++    kex_uake_sharedB(kexsendb, kexkey, kexsenda, sk, rnd);
+   }
+   print_results("kex_uake_sharedB: ", t, NTESTS);
+ 
+@@ -157,13 +160,13 @@ int main(void)
+ 
+   for(i=0;i<NTESTS;i++) {
+     t[i] = cpucycles();
+-    kex_ake_initA(kexsenda, key, sk, pk);
++    kex_ake_initA(kexsenda, key, sk, pk, rnd);
+   }
+   print_results("kex_ake_initA: ", t, NTESTS);
+ 
+   for(i=0;i<NTESTS;i++) {
+     t[i] = cpucycles();
+-    kex_ake_sharedB(kexsendb, kexkey, kexsenda, sk, pk);
++    kex_ake_sharedB(kexsendb, kexkey, kexsenda, sk, pk, rnd);
+   }
+   print_results("kex_ake_sharedB: ", t, NTESTS);
+ 
+-- 
+2.42.0
+
